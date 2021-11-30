@@ -1,4 +1,5 @@
 #include"comm.h"
+
 int main()
 {
   //1、首先手动生成唯一一个标识
