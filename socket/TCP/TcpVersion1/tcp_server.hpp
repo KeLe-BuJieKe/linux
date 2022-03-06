@@ -29,6 +29,8 @@ class TcpServer
         std::cerr << "socket error " << std::endl;
         exit(2);
       }
+      int opt = 1;
+      setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
       struct sockaddr_in local;
       memset(&local, 0, sizeof(local));
