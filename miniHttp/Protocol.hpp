@@ -3,6 +3,7 @@
 #include <iostream>
 #include <unistd.h>
 #include "Util.hpp"
+#include "Log.hpp"
 #include <string>
 #include <vector>
 
@@ -33,7 +34,7 @@ class EndPoint
         HttpRequest http_request;
         HttpResponse http_response;
     private:
-        void RecvHttpRequestLine()
+        void RecvHttpRequestLine() //读取请求行
         {
             Util::ReadLine(sock, http_request.request_line);
         }
@@ -80,6 +81,7 @@ class Entrance
     public:
         static void* HandlerRequest(void* arg)
         {
+            LOG(INFO, "Handler Request Begin");
             pthread_detach(pthread_self());
             int sock = *(reinterpret_cast<int*>(arg));
             delete reinterpret_cast<int*>(arg);
@@ -97,7 +99,8 @@ class Entrance
             ep->MakeHttpResponse();
             ep->SendHttpResponse();
             delete ep;
-#endif
+#endif 
+            LOG(INFO, "Handler Request End");
             return nullptr;
         }
 

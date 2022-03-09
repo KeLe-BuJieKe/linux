@@ -1,10 +1,12 @@
 #include "HttpServer.hpp"
+#include "Log.hpp"
 #include <memory>
 
 void Usage(std::string proc)
 {
     std::cerr << "Usage: " << proc << " port" << std::endl;
 }
+
 
 
 int main(int argc, char* argv[])

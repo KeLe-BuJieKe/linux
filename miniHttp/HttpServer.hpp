@@ -3,7 +3,7 @@
 #include <iostream>
 #include "TcpServer.hpp"
 #include "Protocol.hpp"
-
+#include "Log.hpp"
 const int KPORT = 1811;
 
 class HttpServer
@@ -26,6 +26,7 @@ class HttpServer
         
         void Loop()
         {
+            LOG(INFO, "Loop Begin");
             int listen_sock = tcp_server->GetSock();
             
             while(!this->stop)
@@ -37,7 +38,7 @@ class HttpServer
                 {
                     continue;
                 }
-
+                LOG(INFO, "Get a new link ...");
                 int *sock = new int(fd);
                 pthread_t tid;
                 pthread_create(&tid, nullptr, Entrance::HandlerRequest, sock);

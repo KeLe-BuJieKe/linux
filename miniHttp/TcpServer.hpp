@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <unistd.h> 
 #include <pthread.h>
+#include "Log.hpp"
 
 const int KBACKLOG = 5;
 
@@ -50,6 +51,7 @@ class TcpServer
             CreateSocket();
             BindSocket();
             ListenSocket();
+            LOG(INFO, "tcp server init success ...");
         }
 
         void CreateSocket()  //创建监听套接字
@@ -57,11 +59,13 @@ class TcpServer
             listen_sock = socket(AF_INET, SOCK_STREAM, 0);  
             if(listen_sock < 0)
             {
+                LOG(FATAL, "socket error");
                 exit(2);
             }
             
             int opt = 1;
             setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+            LOG(INFO, "create socket success ...");
         }
         
         void BindSocket() //绑定
@@ -76,8 +80,10 @@ class TcpServer
             int ret = bind(listen_sock, reinterpret_cast<struct sockaddr*>(&local), len);
             if(ret < 0)
             {
+                LOG(FATAL, "bind error");
                 exit(3);
             }
+            LOG(INFO, "bind socket success ...");
         }
 
         void ListenSocket() //将监听套接字设置为listen状态
@@ -85,8 +91,10 @@ class TcpServer
               int ret = listen(listen_sock, KBACKLOG);
               if(ret < 0)
               {
+                  LOG(FATAL, "listen error");
                   exit(4);
               }
+              LOG(INFO, "listen socket success ...");
         }
         
         int GetSock()
@@ -97,7 +105,10 @@ class TcpServer
 
         ~TcpServer()
         {
-
+            if(listen_sock >= 0)
+            {
+                close(listen_sock);
+            }
         }
 };
 
