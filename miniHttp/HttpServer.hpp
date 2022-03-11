@@ -29,7 +29,7 @@ class HttpServer
             LOG(INFO, "Loop Begin");
             int listen_sock = tcp_server->GetSock();
             
-            while(!this->stop)
+            while(!stop)
             {
                 struct sockaddr_in peer;
                 socklen_t len = sizeof(peer);

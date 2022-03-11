@@ -17,7 +17,7 @@ class Util
                 ssize_t size = recv(sock, &ch, 1, 0);
                 if(size > 0)
                 {
-                    if(ch == '\r') // /r/n
+                    if(ch == '\r') 
                     {
                         recv(sock, &ch, 1, MSG_PEEK);
                         if(ch == '\n') // /r/n
@@ -42,5 +42,19 @@ class Util
                 }
             }
             return static_cast<int>(out.size());   
+        }
+
+
+        static bool CutString(const std::string& target, std::string& sub1_out, std::string& sub2_out, const std::string sep)
+        {
+            size_t pos = target.find(sep);
+            if(pos != std::string::npos)
+            {
+                sub1_out = target.substr(0, pos);
+                sub2_out = target.substr(pos + sep.size());
+                return true;
+            }
+
+            return false;
         }
 };
