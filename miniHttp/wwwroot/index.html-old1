@@ -1,4 +1,4 @@
-CTYPE html>
+<!DOCTYPE html>
 <html>
     <head><meta charset="UTF-8"></head>
     <body>
@@ -14,7 +14,5 @@ CTYPE html>
             <br>
             <input type="radio" name="sex" value="female">Female
         </form> 
-        <p>你好</p>
     </body>
 </html>
-
