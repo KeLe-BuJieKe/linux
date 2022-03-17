@@ -136,7 +136,7 @@ class EndPoint
                 }
                 line.resize(line.size()-1); //将http自带得\n去掉
                 http_request.request_header.push_back(line);
-                //LOG(INFO, line);
+                LOG(INFO, line);
             }
         }
         
@@ -237,22 +237,29 @@ class EndPoint
         int ProcessCgi()
         {
             std::string& filepath = http_request.path;//要执行的目标文件，一定存在
+            
             std::string query_string_env;
             std::string method_env;
+            std::string content_length_env;
             //站在父进程角度 
             int input[2];
             int output[2];
-            
+            int code = 200; 
+
             if(pipe(input) < 0)
             {
                 LOG(ERROR, "pipe input error");
-                return 404;
+                code = 404;
+                return code;
             }
             
             if(pipe(output) < 0)
             {
+                close(input[0]);
+                close(input[1]);
                 LOG(ERROR, "pipe output error");
-                return 404;
+                code = 404;
+                return code;
             }
 
             pid_t child = fork(); 
@@ -277,8 +284,21 @@ class EndPoint
                         }
                     }
                 }
+                
+                int status = 0;
+                pid_t wait_id = waitpid(child, &status, 0);    
+                if(wait_id == child)
+                {
+                    if(WIFEXITED(status))
+                    {
+                        code = 200;
+                    }
+                    else 
+                    {
+                        code = 404;
+                    }
+                }
 
-                waitpid(child, nullptr, 0);    
                 close(input[0]);
                 close(output[1]);
             }
@@ -300,6 +320,14 @@ class EndPoint
                     query_string_env = "QUERY_STRING="; 
                     query_string_env += http_request.query_string;
                     putenv(const_cast<char*>(query_string_env.c_str()));
+                    LOG(INFO, "Get method, Add Query_String_Env");
+                }
+                else if(http_request.method == "POST")
+                {
+                    content_length_env = "CONTENT_LENGTH=";
+                    content_length_env += std::to_string(http_request.content_length);
+                    putenv(const_cast<char*>(content_length_env.c_str()));
+                    LOG(INFO, "Post Method, Add Content_Lenght_Env");
                 }
 
                 execl(filepath.c_str(), filepath.c_str(), nullptr);
@@ -308,11 +336,15 @@ class EndPoint
             else 
             {
                 //fork() error
+                close(input[0]);
+                close(input[1]);
+                close(output[0]);
+                close(output[1]);
                 LOG(ERROR, "fork error");
-                return 404;
+                code = 404;
             }
 
-            return 200;
+            return code;
         }
     public:
         EndPoint(int _sock):sock(_sock)
@@ -343,6 +375,7 @@ class EndPoint
                 code = 404;
                 goto END;
             }
+
             if(http_request.method == "GET") //如果是GET方法要分析此时是否带参数
             {
                 size_t pos = http_request.uri.find("?");
@@ -359,6 +392,7 @@ class EndPoint
             else if(http_request.method == "POST")
             {
                 http_request.cgi = true;
+                http_request.path = http_request.uri;
             }
             else 
             {
