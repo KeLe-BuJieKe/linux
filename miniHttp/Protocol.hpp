@@ -20,7 +20,17 @@
 #define WEB_ROOT "wwwroot"
 #define HOME_PAGE "index.html"
 #define HTTP_VERSION "HTTP/1.0"
+#define PAGE_404 "404.html"
 #define HTTP_LINE_END "\r\n"
+
+
+enum ERR_CODE
+{
+    OK = 200,
+    BAD_REQUEST = 400,
+    NOT_FOUND = 404,
+    SERVER_ERROR = 500
+};
 
 //状态码与状态码描述
 static std::string CodeToDesc(const int code)
@@ -40,7 +50,7 @@ static std::string CodeToDesc(const int code)
     return desc;
 }
 
-//后缀与文件转换
+//后缀与文件类型转换
 static std::string SuffixToDesc(const std::string& suffix)
 {
     static std::unordered_map<std::string, std::string> suffixtodesc 
@@ -81,8 +91,9 @@ class HttpRequest
         std::string path;
         std::string query_string;
         std::string suffix; //后缀
+        int size;//要访问的文件的字节数
     public:
-        HttpRequest(): content_length(0), cgi(false)
+        HttpRequest(): content_length(0), cgi(false), size(0)
         {}
         ~HttpRequest() = default;
 };
@@ -97,8 +108,7 @@ class HttpResponse
         std::string response_body; //响应正文
         int status_code; //状态码
         int file_fd; //与之响应所开辟的套接字
-        int size;//要访问的文件的字节数
-        HttpResponse():blank(HTTP_LINE_END), status_code(200), file_fd(-1), size(0)
+        HttpResponse():blank(HTTP_LINE_END), status_code(200), file_fd(-1)
         {}
         ~HttpResponse()
         {}
@@ -112,23 +122,35 @@ class EndPoint
         int sock; //套接字---文件描述符
         HttpRequest http_request; //http请求
         HttpResponse http_response;//http响应
+        bool stop;
     private:
-        void RecvHttpRequestLine() //读取请求行
+        bool RecvHttpRequestLine() //读取请求行
         {
             std::string& line = http_request.request_line;
-            Util::ReadLine(sock, line);
-            //去除掉最后的\n
-            http_request.request_line.resize(line.size()-1);
-            LOG(INFO, line);
+            if(Util::ReadLine(sock, line) > 0)
+            {
+                //去除掉最后的\n
+                http_request.request_line.resize(line.size()-1);
+                LOG(INFO, line);
+            }
+            else 
+            {
+                stop = true;
+            }
+            return stop;
         }
 
-        void RecvHttpRequestHander() //读取请求报头 key:value 
+        bool RecvHttpRequestHander() //读取请求报头 key:value 
         {
             std::string line;
             while(true)
             {
                 line.clear(); 
-                Util::ReadLine(sock, line);
+                if(Util::ReadLine(sock, line) <= 0)
+                {
+                    stop = true;
+                    break;
+                }
                 if(line == "\n")
                 {
                     http_request.blank = line;
@@ -138,6 +160,7 @@ class EndPoint
                 http_request.request_header.push_back(line);
                 LOG(INFO, line);
             }
+            return stop;
         }
         
         void ParseHttpRequsetLine() //解析请求行
@@ -181,7 +204,7 @@ class EndPoint
             return false;
         }
 
-        void RecvHttpRequestBody() //读取正文
+        bool RecvHttpRequestBody() //读取正文
         {
             if(IsNeedRecvHttpRequestBody() == true)
             {
@@ -189,6 +212,7 @@ class EndPoint
                 std::string& body = http_request.request_body;
 
                 char ch = '\0';
+                
                 while(content_length)
                 {
                     ssize_t size = recv(sock, &ch, sizeof(ch), 0);
@@ -199,57 +223,40 @@ class EndPoint
                     }
                     else 
                     {
+                        stop = true;
                         break;
                     }
                 }
+                LOG(INFO, body); 
             }
+            return stop;
         }
 
-        int ProcessNonCgi(const int size)
+        int ProcessNonCgi()
         {
             http_response.file_fd = open(http_request.path.c_str(), O_RDONLY);
-            if(http_response.file_fd > 0)
+            if(http_response.file_fd >= 0)
             {
-                //HTTP响应行
-                http_response.status_line = HTTP_VERSION; //http版本号
-                http_response.status_line += " ";
-                http_response.status_line += std::to_string(http_response.status_code);//状态码
-                http_response.status_line += " ";
-                http_response.status_line += CodeToDesc(http_response.status_code);//状态描述
-                http_response.status_line += HTTP_LINE_END; //响应行特殊字符结尾"\r\n"
-                http_response.size = size;
-                
-                //响应报文，正文长度以及正文文件的类型
-                std::string hander_line = "Content-Length: ";
-                hander_line += std::to_string(size);
-                hander_line += HTTP_LINE_END;
-                http_response.response_header.push_back(hander_line);
-                
-                hander_line = "Content-Type: ";
-                hander_line += SuffixToDesc(http_request.suffix);
-                hander_line += HTTP_LINE_END;
-                http_response.response_header.push_back(hander_line);
-                return 200;
+                return OK;
             }
-            return 404;  
+            return NOT_FOUND;  
         }
 
         int ProcessCgi()
         {
             std::string& filepath = http_request.path;//要执行的目标文件，一定存在
-            
             std::string query_string_env;
             std::string method_env;
             std::string content_length_env;
             //站在父进程角度 
             int input[2];
             int output[2];
-            int code = 200; 
+            int code = OK; 
 
             if(pipe(input) < 0)
             {
                 LOG(ERROR, "pipe input error");
-                code = 404;
+                code = SERVER_ERROR;
                 return code;
             }
             
@@ -258,7 +265,7 @@ class EndPoint
                 close(input[0]);
                 close(input[1]);
                 LOG(ERROR, "pipe output error");
-                code = 404;
+                code = SERVER_ERROR;
                 return code;
             }
 
@@ -271,31 +278,40 @@ class EndPoint
                 if(http_request.method == "POST")
                 {
                     const char* str = http_request.request_body.c_str();
-                    size_t total = 0;
-                    ssize_t size = 0;
-                    while(total != http_request.request_body.size())
+                    
+                    int content_length = http_request.request_body.size();
+                    int total = 0;
+                    int size = 0;
+                    while(total < content_length && (size = write(output[1], str+total, http_request.request_body.size() - total)) > 0)
                     {
-                        size = write(output[1], str+total, http_request.request_body.size()-total); 
                         total += size;
-                        if(size < 0)
-                        {
-                            LOG(ERROR, "parent write error");
-                            return 404;
-                        }
                     }
                 }
                 
+                char ch = '\0'; //读取cgi发过来的数据
+                while(read(input[0], &ch, sizeof(ch)) > 0)
+                {
+                    http_response.response_body.push_back(ch);
+                }
+
                 int status = 0;
                 pid_t wait_id = waitpid(child, &status, 0);    
                 if(wait_id == child)
                 {
                     if(WIFEXITED(status))
                     {
-                        code = 200;
+                        if(WEXITSTATUS(status) == 0)
+                        {
+                            code = OK;
+                        }
+                        else 
+                        {
+                            code = BAD_REQUEST;
+                        }
                     }
                     else 
                     {
-                        code = 404;
+                        code = SERVER_ERROR;
                     }
                 }
 
@@ -309,13 +325,11 @@ class EndPoint
                 close(output[1]);
                 //input  写入到 -> 1 -> input[1]
                 //output 读取到 -> 0 -> output[0]
-                dup2(input[1], 1);
-                dup2(output[0], 0);
                 
                 method_env = "METHOD=";
                 method_env += http_request.method;
                 putenv(const_cast<char*>(method_env.c_str()));
-                if(http_request.method == "GET") //让子进程请求环境变量里读取数据
+                if(http_request.method == "GET") //让子进程从环境变量里读取数据
                 {
                     query_string_env = "QUERY_STRING="; 
                     query_string_env += http_request.query_string;
@@ -330,6 +344,8 @@ class EndPoint
                     LOG(INFO, "Post Method, Add Content_Lenght_Env");
                 }
 
+                dup2(input[1], 1);
+                dup2(output[0], 0);
                 execl(filepath.c_str(), filepath.c_str(), nullptr);
                 exit(1);
             }
@@ -341,23 +357,105 @@ class EndPoint
                 close(output[0]);
                 close(output[1]);
                 LOG(ERROR, "fork error");
-                code = 404;
+                code = SERVER_ERROR;
             }
 
             return code;
         }
+        
+        void BuildOkResponse()
+        {
+            std::string line = "Content-Type: ";
+            line += SuffixToDesc(http_request.suffix);
+            line += HTTP_LINE_END; 
+            http_response.response_header.push_back(line);   
+            line = "Content-Length: "; 
+            if(http_request.cgi == true)
+            {
+                line += std::to_string(http_response.response_body.size());
+            }
+            else 
+            {
+                line += std::to_string(http_request.size); //Get
+            }
+            line += HTTP_LINE_END; 
+            http_response.response_header.push_back(line);   
+        }
+
+        void HandlerError(std::string page)
+        {
+            http_request.cgi = false;
+            http_response.file_fd = open(page.c_str(), O_RDONLY);
+            if(http_response.file_fd >= 0)
+            {
+                struct stat st;
+                http_request.size = st.st_size;
+                stat(page.c_str(), &st);
+                std::string line = "Content-Type: text/html";
+                line += HTTP_LINE_END; 
+                http_response.response_header.push_back(line);   
+                line = "Content-Length: "; 
+                line += std::to_string(st.st_size);
+                line += HTTP_LINE_END; 
+                http_response.response_header.push_back(line);   
+            }
+        }
+
+        void MakeHttpResponseHelper()
+        {
+            //响应行
+            std::string& status_line = http_response.status_line;
+            int& code = http_response.status_code;
+            status_line += HTTP_VERSION;
+            status_line += " ";
+            status_line += std::to_string(code);
+            status_line += " ";
+            status_line += CodeToDesc(code);
+            status_line += HTTP_LINE_END;
+            
+            std::string path = WEB_ROOT;
+            path += "/";
+            switch(code)
+            {
+                case OK:
+                    BuildOkResponse();
+                    break;
+                case BAD_REQUEST:
+                    break;
+                case NOT_FOUND:
+                    path += PAGE_404;
+                    HandlerError(path);
+                    break;
+                case SERVER_ERROR:
+                    break;
+                default:
+                    break;
+            }
+        }
+
     public:
-        EndPoint(int _sock):sock(_sock)
+        EndPoint(int _sock):sock(_sock), stop(false)
         {}
+        
+        bool IsStop() const
+        {
+            return stop;
+        }
 
         //读取请求
         void RcvHttpRequset()
         {
-            RecvHttpRequestLine(); //读取请求行
-            RecvHttpRequestHander();//读取请求报头
-            ParseHttpRequsetLine(); //解析请求行
-            ParseHttpRequsetHander();//解析报头
-            RecvHttpRequestBody();//读取正文
+            //读取请求行和请求报头
+            if(RecvHttpRequestLine() || RecvHttpRequestHander())
+            {
+                //recv error   nothing to do 
+            }
+            else 
+            {
+                ParseHttpRequsetLine(); //解析请求行
+                ParseHttpRequsetHander();//解析报头
+                RecvHttpRequestBody();//读取正文
+            }
         }
         
         //生成请求
@@ -366,13 +464,12 @@ class EndPoint
             int& code = http_response.status_code;//状态码 
             std::string temp;
             struct stat st; //用于获取请求的文件的各项属性
-            int size;
             size_t found;
             if(http_request.method != "GET" && http_request.method != "POST")
             {
                 //非法请求
                 LOG(WARNING, "method is no right");
-                code = 404;
+                code = BAD_REQUEST;
                 goto END;
             }
 
@@ -423,15 +520,15 @@ class EndPoint
                 {
                     http_request.cgi = true;
                 }
-                size = st.st_size;
+                http_request.size = st.st_size;
             }
             else 
             {
                 //说明资源不存在
-                std::string temp = http_request.path;
-                temp += " Not Found";
-                LOG(WARNING, temp);
-                code = 404;
+                std::string temp_path = http_request.path;
+                temp_path += " Not Found";
+                LOG(WARNING, temp_path);
+                code = NOT_FOUND;
                 goto END;
             }
            
@@ -454,26 +551,43 @@ class EndPoint
             {
                 //1.目标网页一定存在的。返回静态网页
                 //2.返回并不是简单的返回，而是去构建Http响应返回
-                code = ProcessNonCgi(size);
+                code = ProcessNonCgi();
             }
 END:
-            if(code != 200)
-            {
-                
-            }
-            return;
+            MakeHttpResponseHelper();
         }
-
+        
         //发送请求
         void SendHttpResponse()
         {
+            //1.发送响应行
+            //2.发送响应报头
+            //3.发送空行
+            //4，发送正文
             send(sock, http_response.status_line.c_str(), http_response.status_line.size(), 0);
             for(auto& it : http_response.response_header)
             {
                 send(sock, it.c_str(),  it.size(), 0);
             }
+
             send(sock, http_response.blank.c_str(), http_response.blank.size(), 0);
-            sendfile(sock, http_response.file_fd, nullptr, http_response.size);
+            
+            
+            if(http_request.cgi == true)
+            {
+                ssize_t size = 0;
+                size_t total = 0;
+                std::string& response_body = http_response.response_body;
+                const char* str = response_body.c_str();
+                while(total < response_body.size() && (size = send(sock, str + total, response_body.size() - total, 0)) > 0)
+                {
+                    total += size; 
+                }
+            }
+            else 
+            {
+                sendfile(sock, http_response.file_fd, nullptr, http_request.size);
+            }
             close(http_response.file_fd);
         }
 
@@ -503,8 +617,16 @@ class Entrance
 #else
             EndPoint* ep = new EndPoint(sock);
             ep->RcvHttpRequset();
-            ep->MakeHttpResponse();
-            ep->SendHttpResponse();
+            if(ep->IsStop() == false)
+            {
+                LOG(INFO, "Recv No Error, Make Continue And Send");
+                ep->MakeHttpResponse();
+                ep->SendHttpResponse();
+            }
+            else 
+            {
+                LOG(WARNING, "Recv Error, Stop Make And Send");
+            }
             delete ep;
 #endif 
             LOG(INFO, "Handler Request End");

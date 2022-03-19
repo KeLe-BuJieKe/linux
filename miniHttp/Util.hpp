@@ -34,7 +34,7 @@ class Util
                 }
                 else if(size == 0)
                 {
-                    return 0;
+                    break; 
                 }
                 else
                 {

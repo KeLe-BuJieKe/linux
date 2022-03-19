@@ -7,6 +7,7 @@
 #include <arpa/inet.h>
 #include <unistd.h> 
 #include <pthread.h>
+#include <signal.h>
 #include "Log.hpp"
 
 const int KBACKLOG = 5;
@@ -48,6 +49,8 @@ class TcpServer
         
         void InitTcpServer()  //初始化服务器
         {
+            //将SIGPIPE信号进行忽略，如果不忽略在写入时，可能直接奔溃server
+            signal(SIGPIPE, SIG_IGN);
             CreateSocket();
             BindSocket();
             ListenSocket();
