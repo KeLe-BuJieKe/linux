@@ -598,15 +598,19 @@ END:
 };
 
 
-class Entrance
+class CallBack
 {
     public:
-        static void* HandlerRequest(void* arg)
+        CallBack()
+        {}
+        void operator()(int sock)
+        {
+            HandlerRequest(sock);
+        }
+        void HandlerRequest(int sock)
         {
             LOG(INFO, "Handler Request Begin");
             pthread_detach(pthread_self());
-            int sock = *(reinterpret_cast<int*>(arg));
-            delete reinterpret_cast<int*>(arg);
 
 #ifdef DEBUG 
             char buffer[1024*4];
@@ -630,7 +634,8 @@ class Entrance
             delete ep;
 #endif 
             LOG(INFO, "Handler Request End");
-            return nullptr;
         }
 
+        ~CallBack()
+        {}
 };
