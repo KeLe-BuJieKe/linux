@@ -26,4 +26,5 @@ output:
 	cp $(bin) output 
 	cp -r wwwroot output
 	cp $(cgi) output/wwwroot 
-
+	cp ./cgi/python_cgi.py output/wwwroot 
+	cp ./cgi/shell_cgi.sh output/wwwroot

@@ -293,6 +293,7 @@ class EndPoint
                 {
                     http_response.response_body.push_back(ch);
                 }
+                http_response.response_body += HTTP_LINE_END;
 
                 int status = 0;
                 pid_t wait_id = waitpid(child, &status, 0);    
@@ -421,12 +422,16 @@ class EndPoint
                     BuildOkResponse();
                     break;
                 case BAD_REQUEST:
+                    path += PAGE_404;
+                    HandlerError(path);
                     break;
                 case NOT_FOUND:
                     path += PAGE_404;
                     HandlerError(path);
                     break;
                 case SERVER_ERROR:
+                    path += PAGE_404;
+                    HandlerError(path);
                     break;
                 default:
                     break;
