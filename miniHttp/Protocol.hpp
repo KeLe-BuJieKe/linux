@@ -525,6 +525,10 @@ class EndPoint
                 {
                     http_request.cgi = true;
                 }
+                else 
+                {
+                    http_request.cgi = false;
+                }
                 http_request.size = st.st_size;
             }
             else 
