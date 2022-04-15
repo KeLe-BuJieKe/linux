@@ -64,6 +64,7 @@ namespace ns_epoll
                     close(epfd);
                 }
             }//destructor end
+
         public:
             void InitEpoller()
             {
@@ -99,6 +100,17 @@ namespace ns_epoll
                 }
 
                 event_items.erase(sock);
+            }
+            
+            void EnableReadWrite(int sock, bool read, bool write)
+            {
+                struct epoll_event ev;
+                ev.events = (read ? EPOLLIN : 0) | (write ? EPOLLOUT : 0) | EPOLLET;
+                ev.data.fd = sock;
+                if (epoll_ctl(epfd, EPOLL_CTL_MOD, sock, &ev) < 0){
+                    std::cerr << "epoll_ctl mod error, fd:" << sock << std::endl; 
+                }
+
             }
 
             void Dispatcher(int timeout)
