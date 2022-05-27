@@ -619,7 +619,6 @@ class CallBack
         void HandlerRequest(int sock)
         {
             LOG(INFO, "Handler Request Begin");
-            pthread_detach(pthread_self());
 
 #ifdef DEBUG 
             char buffer[1024*4];
